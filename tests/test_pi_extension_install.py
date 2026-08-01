@@ -775,7 +775,6 @@ await waitForCompletionHookCount(completionCount);
             "hooks feed --source pi --event SubagentStop",
             "surface resume get",
             "surface resume set",
-            "surface resume clear",
         ]:
             if expected not in args_log:
                 print(f"FAIL: extension did not invoke {expected}, got {args_log!r}")
@@ -793,10 +792,8 @@ await waitForCompletionHookCount(completionCount);
         expected_resume_ops = [
             "set",
             "get",
-            "clear",
             "set",
             "get",
-            "clear",
             "set",
             "get",
             "set",

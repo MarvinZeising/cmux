@@ -229,35 +229,6 @@ async function ensureResumeBinding(
   }
 }
 
-async function clearResumeBinding(
-  dispatcher: PiCmuxCommandDispatcher,
-  context: PiExtensionContextSnapshot,
-  sessionId: string,
-): Promise<void> {
-  if (process.env.CMUX_PI_HOOKS_DISABLED === "1") return;
-  const target = surfaceTargetArgs(dispatcher, sessionId);
-  if (!target) return;
-  const cwd = context.cwd;
-  const result = await dispatcher.run([
-    "--json",
-    "surface",
-    "resume",
-    "clear",
-    ...target,
-    "--checkpoint-id",
-    sessionId,
-    "--source",
-    "agent-hook",
-  ], cwd, undefined, context);
-  if (result.surfaceUnavailable) return;
-  if (!result.ok) {
-    warn(context, "failed to clear Pi resume binding", {
-      status: result.status,
-      stderr_available: result.stderr.trim().length > 0,
-      error_available: result.error !== undefined,
-    });
-  }
-}
 
 type PiFeedEventName =
   | "PreToolUse"
@@ -504,11 +475,15 @@ export default function cmuxPiSessionExtension(pi: ExtensionAPI) {
       state.feedDeliveryFailed = false;
       if (!feedDelivered) warn(context, "cmux hook command failed", { session_id: sessionId });
       if (stopPayload) await sendHook(dispatcher, "stop", context, stopPayload);
-      try {
-        await clearResumeBinding(dispatcher, context, sessionId);
-      } finally {
-        releaseSessionRuntime(dispatcher, sessionStates, sessionId);
-      }
+      // Deliberately do not clear the surface's resume binding here: Pi fires
+      // session_shutdown with reason "quit" for both a genuine interactive quit
+      // and a bare SIGTERM/SIGHUP (idle-agent hibernation, tab/window close),
+      // with no way to tell them apart. Clearing on every shutdown destroyed
+      // cmux's ability to resume the surface after those signal-driven
+      // teardowns. The binding is self-healing: session_start re-sets it for a
+      // fresh session, and cmux's own liveness/dedup checks already handle a
+      // stale binding pointing at a session that's no longer running.
+      releaseSessionRuntime(dispatcher, sessionStates, sessionId);
     });
   });
 }
