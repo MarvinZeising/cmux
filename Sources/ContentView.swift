@@ -1011,14 +1011,8 @@ struct ContentView: View {
             return paneRect
         }
 
-        // Validate against the pane's full (untrimmed) box, not paneRect's
-        // chrome-trimmed estimate: a pane whose per-tab chrome isn't
-        // actually visible (e.g. a single-tab pane hides its tab strip) has
-        // real content starting above where the trimmed estimate assumes.
-        // Checking against the trimmed box wrongly rejected that accurate,
-        // higher exactRect and fell back to paneRect, which rendered the
-        // active-pane border ~topChromeHeight (about two terminal rows) too
-        // far down from the pane's true top.
+        // Untrimmed box, not paneRect's chrome-trimmed estimate: single-tab
+        // panes hide their tab strip, so the trimmed box wrongly rejects it.
         let containingRect = rawPaneRect ?? paneRect
         let tolerance: CGFloat = 0.5
         let exactFitsWithinPane =

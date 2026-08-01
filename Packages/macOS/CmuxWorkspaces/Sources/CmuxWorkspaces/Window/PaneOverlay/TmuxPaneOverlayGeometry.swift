@@ -111,14 +111,7 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
         )
     }
 
-    /// Resolves a pane's full window-content rect with no top-chrome trim.
-    ///
-    /// Used to sanity-check a live ("exact") rect against the pane's whole
-    /// box rather than against `windowOverlayRect`'s chrome-trimmed estimate:
-    /// a pane whose per-tab chrome isn't actually visible (e.g. a single-tab
-    /// pane hides its tab strip) has real content starting above where the
-    /// fixed `topChromeHeight` assumes, and comparing against the trimmed
-    /// rect would wrongly reject that accurate, higher rect.
+    /// Like `windowOverlayRect`, but untrimmed -- needed to sanity-check panes whose tab strip is hidden.
     /// - Parameters:
     ///   - layoutSnapshot: the Bonsplit layout snapshot, if any.
     ///   - paneId: the pane to resolve, if any.
