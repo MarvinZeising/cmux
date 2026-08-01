@@ -1033,7 +1033,8 @@ struct ContentView: View {
 
     static func preferredTmuxWorkspacePaneWindowOverlayRect(
         exactRect: CGRect?,
-        paneRect: CGRect?
+        paneRect: CGRect?,
+        rawPaneRect: CGRect? = nil
     ) -> CGRect? {
         guard let paneRect else { return exactRect }
         guard let exactRect,
@@ -1042,12 +1043,15 @@ struct ContentView: View {
             return paneRect
         }
 
+        // Untrimmed box, not paneRect's chrome-trimmed estimate: single-tab
+        // panes hide their tab strip, so the trimmed box wrongly rejects it.
+        let containingRect = rawPaneRect ?? paneRect
         let tolerance: CGFloat = 0.5
         let exactFitsWithinPane =
-            exactRect.minX >= paneRect.minX - tolerance &&
-            exactRect.maxX <= paneRect.maxX + tolerance &&
-            exactRect.minY >= paneRect.minY - tolerance &&
-            exactRect.maxY <= paneRect.maxY + tolerance
+            exactRect.minX >= containingRect.minX - tolerance &&
+            exactRect.maxX <= containingRect.maxX + tolerance &&
+            exactRect.minY >= containingRect.minY - tolerance &&
+            exactRect.maxY <= containingRect.maxY + tolerance
         return exactFitsWithinPane ? exactRect : paneRect
     }
 
@@ -1093,14 +1097,20 @@ struct ContentView: View {
                     )
                     guard shouldShowUnread else { return nil }
 
+                    let paneId = workspace.paneId(forPanelId: panelId)
                     let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
                         layoutSnapshot: layoutSnapshot,
-                        paneId: workspace.paneId(forPanelId: panelId)
+                        paneId: paneId
+                    )
+                    let rawPaneRect = WorkspaceContentView.tmuxWorkspacePaneRawWindowOverlayRect(
+                        layoutSnapshot: layoutSnapshot,
+                        paneId: paneId
                     )
                     let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
                     return Self.preferredTmuxWorkspacePaneWindowOverlayRect(
                         exactRect: exactRect,
-                        paneRect: paneRect
+                        paneRect: paneRect,
+                        rawPaneRect: rawPaneRect
                     )
                 }
             } else {
@@ -1119,14 +1129,20 @@ struct ContentView: View {
             if let panelId = workspace.tmuxWorkspaceFlashPanelId,
                let panel = workspace.panels[panelId],
                let contentView {
+                let paneId = workspace.paneId(forPanelId: panelId)
                 let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
                     layoutSnapshot: layoutSnapshot,
-                    paneId: workspace.paneId(forPanelId: panelId)
+                    paneId: paneId
+                )
+                let rawPaneRect = WorkspaceContentView.tmuxWorkspacePaneRawWindowOverlayRect(
+                    layoutSnapshot: layoutSnapshot,
+                    paneId: paneId
                 )
                 let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
                 flashRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
                     exactRect: exactRect,
-                    paneRect: paneRect
+                    paneRect: paneRect,
+                    rawPaneRect: rawPaneRect
                 )
             } else {
                 flashRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
@@ -1142,14 +1158,20 @@ struct ContentView: View {
         if shouldShowActivePaneBorder,
            let panelId = workspace.focusedPanelId,
            let panel = workspace.panels[panelId] {
+            let paneId = workspace.paneId(forPanelId: panelId)
             let paneRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
                 layoutSnapshot: layoutSnapshot,
-                paneId: workspace.paneId(forPanelId: panelId)
+                paneId: paneId
+            )
+            let rawPaneRect = WorkspaceContentView.tmuxWorkspacePaneRawWindowOverlayRect(
+                layoutSnapshot: layoutSnapshot,
+                paneId: paneId
             )
             let exactRect = contentView.flatMap { Self.tmuxWorkspacePaneExactRect(for: panel, in: $0) }
             activePaneBorderRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
                 exactRect: exactRect,
-                paneRect: paneRect
+                paneRect: paneRect,
+                rawPaneRect: rawPaneRect
             )
         } else {
             activePaneBorderRect = nil

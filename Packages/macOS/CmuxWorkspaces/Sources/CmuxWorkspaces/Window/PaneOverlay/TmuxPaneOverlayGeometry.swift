@@ -49,7 +49,8 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
     private func paneRect(
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?,
-        includeContainerOffset: Bool
+        includeContainerOffset: Bool,
+        trimTopChrome: Bool = true
     ) -> CGRect? {
         guard let layoutSnapshot,
               let paneId,
@@ -72,7 +73,7 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
                 dy: -CGFloat(layoutSnapshot.containerFrame.y)
             )
         }
-        return contentRect(rect)
+        return trimTopChrome ? contentRect(rect) : rect
     }
 
     /// Resolves a pane's overlay rect in workspace-local coordinates (the
@@ -107,6 +108,23 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
             layoutSnapshot: layoutSnapshot,
             paneId: paneId,
             includeContainerOffset: true
+        )
+    }
+
+    /// Like `windowOverlayRect`, but untrimmed -- needed to sanity-check panes whose tab strip is hidden.
+    /// - Parameters:
+    ///   - layoutSnapshot: the Bonsplit layout snapshot, if any.
+    ///   - paneId: the pane to resolve, if any.
+    /// - Returns: the untrimmed window-content rect, or `nil` when unresolved.
+    public func rawWindowOverlayRect(
+        layoutSnapshot: LayoutSnapshot?,
+        paneId: PaneID?
+    ) -> CGRect? {
+        paneRect(
+            layoutSnapshot: layoutSnapshot,
+            paneId: paneId,
+            includeContainerOffset: true,
+            trimTopChrome: false
         )
     }
 
