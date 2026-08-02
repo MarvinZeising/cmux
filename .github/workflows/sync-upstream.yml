@@ -2,9 +2,12 @@ name: Sync fork with upstream
 
 on:
   schedule:
-    # Daily at 06:00 UTC. Must live on the default branch (main) for the
-    # schedule trigger to fire at all.
-    - cron: "0 6 * * *"
+    # Daily at 01:00 UTC. Must live on the default branch (main) for the
+    # schedule trigger to fire at all. Deliberately a few hours ahead of
+    # marvin's local 04:00 CEST/CET `rebuild.sh` run, so the build-marvin-app
+    # job below normally has a finished, downloadable release ready by then
+    # regardless of DST.
+    - cron: "0 1 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -51,6 +54,8 @@ jobs:
   rebuild-marvin:
     needs: sync-main
     runs-on: ubuntu-latest
+    outputs:
+      marvin_sha: ${{ steps.push.outputs.sha }}
     steps:
       - name: Checkout marvin (full history)
         uses: actions/checkout@v4
@@ -88,5 +93,76 @@ jobs:
           done < /tmp/open-prs.tsv
 
       - name: Push rebuilt marvin
+        id: push
         run: |
           git push --force-with-lease origin HEAD:marvin
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-marvin-app:
+    needs: rebuild-marvin
+    # This fork has no self-hosted/blacksmith runners or code-signing
+    # secrets, so build ad-hoc-signed (CODE_SIGNING_ALLOWED=NO) on a plain
+    # GitHub-hosted macOS runner instead of reusing upstream's heavier
+    # nightly.yml (which needs infra we don't have). This is a public repo,
+    # so hosted macOS runner minutes are free.
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - name: Checkout marvin at rebuilt sha
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.rebuild-marvin.outputs.marvin_sha }}
+          submodules: recursive
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Install Rust toolchain
+        run: ./scripts/install-rust-ci.sh
+
+      - name: Install Zig toolchain
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Fetch prebuilt GhosttyKit.xcframework
+        run: ./scripts/download-prebuilt-ghosttykit.sh
+
+      - name: Build cmux.app (Release)
+        run: |
+          set -euo pipefail
+          xcodebuild -project cmux.xcodeproj -scheme cmux -configuration Release \
+            -destination 'platform=macOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
+
+      - name: Locate built app and zip it
+        run: |
+          set -euo pipefail
+          app_path="$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 4 -path '*/Build/Products/Release/cmux.app' -print -quit)"
+          if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
+            echo "Could not locate built cmux.app under DerivedData" >&2
+            exit 1
+          fi
+          echo "Built app: $app_path"
+          products_dir="$(dirname "$app_path")"
+          ditto -c -k --sequesterRsrc --keepParent "$app_path" "$RUNNER_TEMP/cmux.app.zip"
+          ls -lh "$RUNNER_TEMP/cmux.app.zip"
+          unzip -l "$RUNNER_TEMP/cmux.app.zip" | head -20
+
+      - name: Write build sha marker
+        run: echo "${{ needs.rebuild-marvin.outputs.marvin_sha }}" > "$RUNNER_TEMP/sha.txt"
+
+      - name: Publish floating marvin-nightly release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag=marvin-nightly
+          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release delete "$tag" --repo "${{ github.repository }}" --yes --cleanup-tag
+          fi
+          gh release create "$tag" \
+            --repo "${{ github.repository }}" \
+            --title "cmux marvin nightly build" \
+            --notes "Automated Release build of the marvin branch at ${{ needs.rebuild-marvin.outputs.marvin_sha }}. Floating release, recreated on every sync-upstream.yml run." \
+            --target "${{ needs.rebuild-marvin.outputs.marvin_sha }}" \
+            "$RUNNER_TEMP/cmux.app.zip#cmux.app.zip" \
+            "$RUNNER_TEMP/sha.txt#sha.txt"
