@@ -139,7 +139,7 @@ jobs:
       - name: Locate built app and zip it
         run: |
           set -euo pipefail
-          app_path="$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 4 -path '*/Build/Products/Release/cmux.app' -print -quit)"
+          app_path="$(find ~/Library/Developer/Xcode/DerivedData -maxdepth 6 -path '*/Build/Products/Release/cmux.app' -print -quit)"
           if [ -z "$app_path" ] || [ ! -d "$app_path" ]; then
             echo "Could not locate built cmux.app under DerivedData" >&2
             exit 1
