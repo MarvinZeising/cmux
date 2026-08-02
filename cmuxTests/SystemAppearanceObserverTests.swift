@@ -137,16 +137,25 @@ struct SystemAppearanceObserverTests {
         var prefersDark = false
         var startObservationReturnsNil = false
         var startObservationCallCount = 0
+        var startDistributedObservationCallCount = 0
         var events: [String] = []
+        var lastSynchronizedPrefersDark: Bool?
         var onPostSystemAppearanceDidChange: (() -> Void)?
         private(set) var appearanceChangedHandler: (@MainActor () -> Void)?
+        private(set) var distributedAppearanceChangedHandler: (@MainActor () -> Void)?
         let observation = ObservationToken()
+        let distributedObservation = ObservationToken()
 
         lazy var environment = SystemAppearanceObserver.Environment(
             startEffectiveAppearanceObservation: { [unowned self] handler in
                 self.startObservationCallCount += 1
                 self.appearanceChangedHandler = handler
                 return self.startObservationReturnsNil ? nil : self.observation
+            },
+            startDistributedAppearanceObservation: { [unowned self] handler in
+                self.startDistributedObservationCallCount += 1
+                self.distributedAppearanceChangedHandler = handler
+                return self.distributedObservation
             },
             currentAppearanceModeRawValue: { [unowned self] in
                 self.modeRawValue
@@ -155,7 +164,8 @@ struct SystemAppearanceObserverTests {
                 self.events.append("effectivePrefersDark(\(self.prefersDark))")
                 return self.prefersDark
             },
-            synchronizeTerminalTheme: { [unowned self] in
+            synchronizeTerminalTheme: { [unowned self] prefersDark in
+                self.lastSynchronizedPrefersDark = prefersDark
                 self.events.append("synchronizeTerminalTheme")
             },
             postSystemAppearanceDidChange: { [unowned self] in
@@ -167,6 +177,15 @@ struct SystemAppearanceObserverTests {
         @MainActor
         func fireEffectiveAppearanceChanged() {
             appearanceChangedHandler?()
+        }
+
+        // Simulates macOS's system-wide theme-changed broadcast, which fires
+        // even while cmux is not the frontmost app — unlike the KVO handler
+        // above, which real-world traces show AppKit never re-fires for a
+        // backgrounded process (#8998).
+        @MainActor
+        func fireDistributedAppearanceChanged() {
+            distributedAppearanceChangedHandler?()
         }
     }
 
@@ -190,6 +209,32 @@ struct SystemAppearanceObserverTests {
             "postSystemAppearanceDidChange",
         ])
         #expect(harness.events.filter { $0 == "postSystemAppearanceDidChange" }.count == 1)
+    }
+
+    // (a2) Backgrounded OS toggle: cmux is not frontmost, so AppKit never
+    // re-fires the effectiveAppearance KVO (the harness models this by simply
+    // never calling `fireEffectiveAppearanceChanged`), but the system-wide
+    // distributed theme-changed notification still arrives and must still
+    // drive a real resync (#8998: without this, the toggle is silently
+    // dropped and the terminal panes are stuck on the launch-time theme).
+    @Test
+    func distributedNotificationSynchronizesThemeWhenEffectiveAppearanceKVONeverFires() {
+        let harness = Harness()
+        let observer = SystemAppearanceObserver(environment: harness.environment)
+
+        observer.startObserving()
+        #expect(harness.startDistributedObservationCallCount == 1)
+
+        harness.prefersDark = true
+        harness.fireDistributedAppearanceChanged()
+
+        #expect(harness.events.contains("synchronizeTerminalTheme"))
+        #expect(harness.events.contains("postSystemAppearanceDidChange"))
+        // The value handed to GhosttyApp must be the freshly-resolved one,
+        // not a stale `NSApp.effectiveAppearance` snapshot from before the
+        // background toggle (that mismatch would silently resync back to the
+        // old theme even though a "change" was detected).
+        #expect(harness.lastSynchronizedPrefersDark == true)
     }
 
     // (b) Explicit (non-system) mode: a KVO fire produces no notification and

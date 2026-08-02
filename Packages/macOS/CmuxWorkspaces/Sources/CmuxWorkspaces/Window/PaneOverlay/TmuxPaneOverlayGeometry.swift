@@ -111,11 +111,10 @@ public struct TmuxPaneOverlayGeometry: Sendable, Equatable {
         )
     }
 
-    /// Like `windowOverlayRect`, but untrimmed -- needed to sanity-check panes whose tab strip is hidden.
-    /// - Parameters:
-    ///   - layoutSnapshot: the Bonsplit layout snapshot, if any.
-    ///   - paneId: the pane to resolve, if any.
-    /// - Returns: the untrimmed window-content rect, or `nil` when unresolved.
+    /// Resolves a pane's full window-content rect with no top-chrome trim,
+    /// for validating against real content bounds even when a pane's tab
+    /// strip is hidden (single-tab panes have none, so the trimmed estimate
+    /// undercounts their true top).
     public func rawWindowOverlayRect(
         layoutSnapshot: LayoutSnapshot?,
         paneId: PaneID?

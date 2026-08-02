@@ -1043,8 +1043,8 @@ struct ContentView: View {
             return paneRect
         }
 
-        // Untrimmed box, not paneRect's chrome-trimmed estimate: single-tab
-        // panes hide their tab strip, so the trimmed box wrongly rejects it.
+        // Validate against the untrimmed rect (see `rawWindowOverlayRect`'s
+        // doc comment), not the chrome-trimmed `paneRect` estimate.
         let containingRect = rawPaneRect ?? paneRect
         let tolerance: CGFloat = 0.5
         let exactFitsWithinPane =
