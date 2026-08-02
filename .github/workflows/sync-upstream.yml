@@ -1,0 +1,92 @@
+name: Sync fork with upstream
+
+on:
+  schedule:
+    # Daily at 06:00 UTC. Must live on the default branch (main) for the
+    # schedule trigger to fire at all.
+    - cron: "0 6 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  sync-main:
+    runs-on: ubuntu-latest
+    outputs:
+      main_sha: ${{ steps.push.outputs.sha }}
+    steps:
+      - name: Checkout main (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          submodules: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/manaflow-ai/cmux.git
+          git fetch upstream main
+
+      - name: Rebase main onto upstream/main, keeping only this workflow
+        # main tracks upstream/main exactly, plus this one workflow file, so
+        # it stays eligible for scheduled triggers without drifting from
+        # upstream otherwise.
+        run: |
+          set -euo pipefail
+          git rebase upstream/main
+
+      - name: Push rebased main
+        id: push
+        run: |
+          git push --force-with-lease origin HEAD:main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  rebuild-marvin:
+    needs: sync-main
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout marvin (full history)
+        uses: actions/checkout@v4
+        with:
+          ref: marvin
+          fetch-depth: 0
+          submodules: false
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Fetch open PR branches
+        id: open-prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr list --repo "${{ github.repository }}" --state open \
+            --json number,headRefName,title \
+            --jq '.[] | "\(.number)\t\(.headRefName)\t\(.title)"' \
+            > /tmp/open-prs.tsv
+          cat /tmp/open-prs.tsv
+
+      - name: Rebuild marvin as main + one squash commit per open PR
+        run: |
+          set -euo pipefail
+          git checkout -B marvin "${{ needs.sync-main.outputs.main_sha }}"
+          while IFS=$'\t' read -r number head_ref title; do
+            git fetch origin "$head_ref"
+            git merge --squash FETCH_HEAD
+            git commit -m "$title (#$number)"
+          done < /tmp/open-prs.tsv
+
+      - name: Push rebuilt marvin
+        run: |
+          git push --force-with-lease origin HEAD:marvin
