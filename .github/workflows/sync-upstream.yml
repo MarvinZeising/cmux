@@ -106,7 +106,10 @@ jobs:
     # nightly.yml (which needs infra we don't have). This is a public repo,
     # so hosted macOS runner minutes are free.
     runs-on: macos-15
-    timeout-minutes: 60
+    # A vanilla hosted macOS runner has no Xcode compilation cache warm (unlike
+    # upstream's blacksmith-backed nightly.yml), so a from-scratch universal
+    # Release build of this many Swift packages can run well past an hour.
+    timeout-minutes: 180
     steps:
       - name: Checkout marvin at rebuilt sha
         uses: actions/checkout@v4
