@@ -1034,7 +1034,8 @@ struct ContentView: View {
 
     static func preferredTmuxWorkspacePaneWindowOverlayRect(
         exactRect: CGRect?,
-        paneRect: CGRect?
+        paneRect: CGRect?,
+        rawPaneRect: CGRect? = nil
     ) -> CGRect? {
         guard let paneRect else { return exactRect }
         guard let exactRect,
@@ -1043,12 +1044,21 @@ struct ContentView: View {
             return paneRect
         }
 
+        // Validate against the pane's full (untrimmed) box, not paneRect's
+        // chrome-trimmed estimate: a pane whose per-tab chrome isn't
+        // actually visible (e.g. a single-tab pane hides its tab strip) has
+        // real content starting above where the trimmed estimate assumes.
+        // Checking against the trimmed box wrongly rejected that accurate,
+        // higher exactRect and fell back to paneRect, which rendered the
+        // active-pane border ~topChromeHeight (about two terminal rows) too
+        // far down from the pane's true top.
+        let containingRect = rawPaneRect ?? paneRect
         let tolerance: CGFloat = 0.5
         let exactFitsWithinPane =
-            exactRect.minX >= paneRect.minX - tolerance &&
-            exactRect.maxX <= paneRect.maxX + tolerance &&
-            exactRect.minY >= paneRect.minY - tolerance &&
-            exactRect.maxY <= paneRect.maxY + tolerance
+            exactRect.minX >= containingRect.minX - tolerance &&
+            exactRect.maxX <= containingRect.maxX + tolerance &&
+            exactRect.minY >= containingRect.minY - tolerance &&
+            exactRect.maxY <= containingRect.maxY + tolerance
         return exactFitsWithinPane ? exactRect : paneRect
     }
 
@@ -1098,10 +1108,15 @@ struct ContentView: View {
                         layoutSnapshot: layoutSnapshot,
                         paneId: workspace.paneId(forPanelId: panelId)
                     )
+                    let rawPaneRect = WorkspaceContentView.tmuxWorkspacePaneRawWindowOverlayRect(
+                        layoutSnapshot: layoutSnapshot,
+                        paneId: workspace.paneId(forPanelId: panelId)
+                    )
                     let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
                     return Self.preferredTmuxWorkspacePaneWindowOverlayRect(
                         exactRect: exactRect,
-                        paneRect: paneRect
+                        paneRect: paneRect,
+                        rawPaneRect: rawPaneRect
                     )
                 }
             } else {
@@ -1124,10 +1139,15 @@ struct ContentView: View {
                     layoutSnapshot: layoutSnapshot,
                     paneId: workspace.paneId(forPanelId: panelId)
                 )
+                let rawPaneRect = WorkspaceContentView.tmuxWorkspacePaneRawWindowOverlayRect(
+                    layoutSnapshot: layoutSnapshot,
+                    paneId: workspace.paneId(forPanelId: panelId)
+                )
                 let exactRect = Self.tmuxWorkspacePaneExactRect(for: panel, in: contentView)
                 flashRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
                     exactRect: exactRect,
-                    paneRect: paneRect
+                    paneRect: paneRect,
+                    rawPaneRect: rawPaneRect
                 )
             } else {
                 flashRect = WorkspaceContentView.tmuxWorkspacePaneWindowOverlayRect(
@@ -1147,10 +1167,15 @@ struct ContentView: View {
                 layoutSnapshot: layoutSnapshot,
                 paneId: workspace.paneId(forPanelId: panelId)
             )
+            let rawPaneRect = WorkspaceContentView.tmuxWorkspacePaneRawWindowOverlayRect(
+                layoutSnapshot: layoutSnapshot,
+                paneId: workspace.paneId(forPanelId: panelId)
+            )
             let exactRect = contentView.flatMap { Self.tmuxWorkspacePaneExactRect(for: panel, in: $0) }
             activePaneBorderRect = Self.preferredTmuxWorkspacePaneWindowOverlayRect(
                 exactRect: exactRect,
-                paneRect: paneRect
+                paneRect: paneRect,
+                rawPaneRect: rawPaneRect
             )
         } else {
             activePaneBorderRect = nil
