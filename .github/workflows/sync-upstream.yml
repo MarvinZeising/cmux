@@ -51,11 +51,14 @@ jobs:
           git push --force-with-lease origin HEAD:main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  rebuild-marvin:
+  # marvin is rebased onto upstream/main, never reset from scratch, so a PR
+  # merged straight into it persists (the old reset+squash-open-PRs design
+  # silently dropped those once their PR closed -- see PR description).
+  sync-marvin:
     needs: sync-main
     runs-on: ubuntu-latest
     outputs:
-      marvin_sha: ${{ steps.push.outputs.sha }}
+      marvin_sha: ${{ steps.rebase.outputs.sha }}
     steps:
       - name: Checkout marvin (full history)
         uses: actions/checkout@v4
@@ -70,36 +73,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch open PR branches
-        id: open-prs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/manaflow-ai/cmux.git
+          git fetch upstream main
+
+      - name: Rebase marvin onto upstream/main
+        id: rebase
         run: |
           set -euo pipefail
-          gh pr list --repo "${{ github.repository }}" --state open \
-            --json number,headRefName,title \
-            --jq '.[] | "\(.number)\t\(.headRefName)\t\(.title)"' \
-            > /tmp/open-prs.tsv
-          cat /tmp/open-prs.tsv
-
-      - name: Rebuild marvin as main + one squash commit per open PR
-        run: |
-          set -euo pipefail
-          git checkout -B marvin "${{ needs.sync-main.outputs.main_sha }}"
-          while IFS=$'\t' read -r number head_ref title; do
-            git fetch origin "$head_ref"
-            git merge --squash FETCH_HEAD
-            git commit -m "$title (#$number)"
-          done < /tmp/open-prs.tsv
-
-      - name: Push rebuilt marvin
-        id: push
-        run: |
+          if ! git rebase upstream/main; then
+            git rebase --abort
+            echo "WARN: rebase onto upstream/main conflicted; leaving marvin as-is" >&2
+          fi
           git push --force-with-lease origin HEAD:marvin
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build-marvin-app:
-    needs: rebuild-marvin
+    needs: sync-marvin
     # This fork has no self-hosted/blacksmith runners or code-signing
     # secrets, so build ad-hoc-signed (CODE_SIGNING_ALLOWED=NO) on a plain
     # GitHub-hosted macOS runner instead of reusing upstream's heavier
@@ -111,10 +102,10 @@ jobs:
     # Release build of this many Swift packages can run well past an hour.
     timeout-minutes: 180
     steps:
-      - name: Checkout marvin at rebuilt sha
+      - name: Checkout marvin at synced sha
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.rebuild-marvin.outputs.marvin_sha }}
+          ref: ${{ needs.sync-marvin.outputs.marvin_sha }}
           submodules: recursive
 
       - name: Select Xcode
@@ -151,7 +142,7 @@ jobs:
           unzip -l "$RUNNER_TEMP/cmux.app.zip" | head -20
 
       - name: Write build sha marker
-        run: echo "${{ needs.rebuild-marvin.outputs.marvin_sha }}" > "$RUNNER_TEMP/sha.txt"
+        run: echo "${{ needs.sync-marvin.outputs.marvin_sha }}" > "$RUNNER_TEMP/sha.txt"
 
       - name: Publish floating marvin-nightly release
         env:
@@ -165,7 +156,7 @@ jobs:
           gh release create "$tag" \
             --repo "${{ github.repository }}" \
             --title "cmux marvin nightly build" \
-            --notes "Automated Release build of the marvin branch at ${{ needs.rebuild-marvin.outputs.marvin_sha }}. Floating release, recreated on every sync-upstream.yml run." \
-            --target "${{ needs.rebuild-marvin.outputs.marvin_sha }}" \
+            --notes "Automated Release build of the marvin branch at ${{ needs.sync-marvin.outputs.marvin_sha }}. Floating release, recreated on every sync-upstream.yml run." \
+            --target "${{ needs.sync-marvin.outputs.marvin_sha }}" \
             "$RUNNER_TEMP/cmux.app.zip#cmux.app.zip" \
             "$RUNNER_TEMP/sha.txt#sha.txt"
