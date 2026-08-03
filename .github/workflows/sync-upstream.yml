@@ -51,15 +51,9 @@ jobs:
           git push --force-with-lease origin HEAD:main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  # marvin is the permanent record of this fork's own work (whatever's been
-  # merged into it via a normal PR), kept current with upstream by rebasing
-  # -- never reset/rebuilt from scratch. A reset-and-replay design used to
-  # live here (marvin = main + squash of currently *open* PRs, rebuilt from
-  # scratch every run); it silently discarded any commit merged straight
-  # into marvin the moment its PR closed, since a merged PR is no longer
-  # "open" and main never contained it either. See the incident where a
-  # merged border-rendering fix vanished within a day. PRs are merged into
-  # marvin by hand, so there's no need to preview open ones here too.
+  # marvin is rebased onto upstream/main, never reset from scratch, so a PR
+  # merged straight into it persists (the old reset+squash-open-PRs design
+  # silently dropped those once their PR closed -- see PR description).
   sync-marvin:
     needs: sync-main
     runs-on: ubuntu-latest
