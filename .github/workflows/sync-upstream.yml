@@ -51,11 +51,19 @@ jobs:
           git push --force-with-lease origin HEAD:main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-  rebuild-marvin:
+  # marvin is the permanent record of this fork's own work (whatever's been
+  # merged into it via a normal PR), kept current with upstream by rebasing
+  # -- never reset/rebuilt from scratch. A reset-and-replay design used to
+  # live here (marvin = main + squash of currently *open* PRs, rebuilt from
+  # scratch every run); it silently discarded any commit merged straight
+  # into marvin the moment its PR closed, since a merged PR is no longer
+  # "open" and main never contained it either. See the incident where a
+  # merged border-rendering fix vanished within a day.
+  sync-marvin:
     needs: sync-main
     runs-on: ubuntu-latest
     outputs:
-      marvin_sha: ${{ steps.push.outputs.sha }}
+      marvin_sha: ${{ steps.rebase.outputs.sha }}
     steps:
       - name: Checkout marvin (full history)
         uses: actions/checkout@v4
@@ -70,36 +78,24 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Fetch open PR branches
-        id: open-prs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Add upstream remote
+        run: |
+          git remote add upstream https://github.com/manaflow-ai/cmux.git
+          git fetch upstream main
+
+      - name: Rebase marvin onto upstream/main
+        id: rebase
         run: |
           set -euo pipefail
-          gh pr list --repo "${{ github.repository }}" --state open \
-            --json number,headRefName,title \
-            --jq '.[] | "\(.number)\t\(.headRefName)\t\(.title)"' \
-            > /tmp/open-prs.tsv
-          cat /tmp/open-prs.tsv
-
-      - name: Rebuild marvin as main + one squash commit per open PR
-        run: |
-          set -euo pipefail
-          git checkout -B marvin "${{ needs.sync-main.outputs.main_sha }}"
-          while IFS=$'\t' read -r number head_ref title; do
-            git fetch origin "$head_ref"
-            git merge --squash FETCH_HEAD
-            git commit -m "$title (#$number)"
-          done < /tmp/open-prs.tsv
-
-      - name: Push rebuilt marvin
-        id: push
-        run: |
+          if ! git rebase upstream/main; then
+            git rebase --abort
+            echo "WARN: rebase onto upstream/main conflicted; leaving marvin as-is" >&2
+          fi
           git push --force-with-lease origin HEAD:marvin
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build-marvin-app:
-    needs: rebuild-marvin
+    needs: sync-marvin
     # This fork has no self-hosted/blacksmith runners or code-signing
     # secrets, so build ad-hoc-signed (CODE_SIGNING_ALLOWED=NO) on a plain
     # GitHub-hosted macOS runner instead of reusing upstream's heavier
@@ -111,11 +107,42 @@ jobs:
     # Release build of this many Swift packages can run well past an hour.
     timeout-minutes: 180
     steps:
-      - name: Checkout marvin at rebuilt sha
+      - name: Checkout marvin at synced sha
         uses: actions/checkout@v4
         with:
-          ref: ${{ needs.rebuild-marvin.outputs.marvin_sha }}
+          ref: ${{ needs.sync-marvin.outputs.marvin_sha }}
+          fetch-depth: 0
           submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Squash open PRs on top for preview
+        # Lets an in-progress PR be exercised in tonight's build before
+        # it's merged. Pushed only to the disposable marvin-nightly-build
+        # branch (recreated every run) -- never to marvin, so a PR that
+        # never merges can't leave anything behind.
+        id: preview
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh pr list --repo "${{ github.repository }}" --state open \
+            --json number,headRefName,title \
+            --jq '.[] | "\(.number)\t\(.headRefName)\t\(.title)"' \
+            > /tmp/open-prs.tsv
+          cat /tmp/open-prs.tsv
+          while IFS=$'\t' read -r number head_ref title; do
+            git fetch origin "$head_ref"
+            git merge --squash FETCH_HEAD
+            git commit -m "$title (#$number)"
+          done < /tmp/open-prs.tsv
+          git submodule update --init --recursive
+          git push --force-with-lease origin HEAD:marvin-nightly-build
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -151,7 +178,7 @@ jobs:
           unzip -l "$RUNNER_TEMP/cmux.app.zip" | head -20
 
       - name: Write build sha marker
-        run: echo "${{ needs.rebuild-marvin.outputs.marvin_sha }}" > "$RUNNER_TEMP/sha.txt"
+        run: echo "${{ steps.preview.outputs.sha }}" > "$RUNNER_TEMP/sha.txt"
 
       - name: Publish floating marvin-nightly release
         env:
@@ -165,7 +192,7 @@ jobs:
           gh release create "$tag" \
             --repo "${{ github.repository }}" \
             --title "cmux marvin nightly build" \
-            --notes "Automated Release build of the marvin branch at ${{ needs.rebuild-marvin.outputs.marvin_sha }}. Floating release, recreated on every sync-upstream.yml run." \
-            --target "${{ needs.rebuild-marvin.outputs.marvin_sha }}" \
+            --notes "Automated Release build of marvin (${{ needs.sync-marvin.outputs.marvin_sha }}) plus any open PRs squashed on top for preview. Floating release, recreated on every sync-upstream.yml run." \
+            --target "${{ steps.preview.outputs.sha }}" \
             "$RUNNER_TEMP/cmux.app.zip#cmux.app.zip" \
             "$RUNNER_TEMP/sha.txt#sha.txt"
