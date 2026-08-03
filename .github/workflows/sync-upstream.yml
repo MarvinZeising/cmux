@@ -58,7 +58,8 @@ jobs:
   # scratch every run); it silently discarded any commit merged straight
   # into marvin the moment its PR closed, since a merged PR is no longer
   # "open" and main never contained it either. See the incident where a
-  # merged border-rendering fix vanished within a day.
+  # merged border-rendering fix vanished within a day. PRs are merged into
+  # marvin by hand, so there's no need to preview open ones here too.
   sync-marvin:
     needs: sync-main
     runs-on: ubuntu-latest
@@ -111,38 +112,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.sync-marvin.outputs.marvin_sha }}
-          fetch-depth: 0
           submodules: recursive
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Configure git identity
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Squash open PRs on top for preview
-        # Lets an in-progress PR be exercised in tonight's build before
-        # it's merged. Pushed only to the disposable marvin-nightly-build
-        # branch (recreated every run) -- never to marvin, so a PR that
-        # never merges can't leave anything behind.
-        id: preview
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          gh pr list --repo "${{ github.repository }}" --state open \
-            --json number,headRefName,title \
-            --jq '.[] | "\(.number)\t\(.headRefName)\t\(.title)"' \
-            > /tmp/open-prs.tsv
-          cat /tmp/open-prs.tsv
-          while IFS=$'\t' read -r number head_ref title; do
-            git fetch origin "$head_ref"
-            git merge --squash FETCH_HEAD
-            git commit -m "$title (#$number)"
-          done < /tmp/open-prs.tsv
-          git submodule update --init --recursive
-          git push --force-with-lease origin HEAD:marvin-nightly-build
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -178,7 +148,7 @@ jobs:
           unzip -l "$RUNNER_TEMP/cmux.app.zip" | head -20
 
       - name: Write build sha marker
-        run: echo "${{ steps.preview.outputs.sha }}" > "$RUNNER_TEMP/sha.txt"
+        run: echo "${{ needs.sync-marvin.outputs.marvin_sha }}" > "$RUNNER_TEMP/sha.txt"
 
       - name: Publish floating marvin-nightly release
         env:
@@ -192,7 +162,7 @@ jobs:
           gh release create "$tag" \
             --repo "${{ github.repository }}" \
             --title "cmux marvin nightly build" \
-            --notes "Automated Release build of marvin (${{ needs.sync-marvin.outputs.marvin_sha }}) plus any open PRs squashed on top for preview. Floating release, recreated on every sync-upstream.yml run." \
-            --target "${{ steps.preview.outputs.sha }}" \
+            --notes "Automated Release build of the marvin branch at ${{ needs.sync-marvin.outputs.marvin_sha }}. Floating release, recreated on every sync-upstream.yml run." \
+            --target "${{ needs.sync-marvin.outputs.marvin_sha }}" \
             "$RUNNER_TEMP/cmux.app.zip#cmux.app.zip" \
             "$RUNNER_TEMP/sha.txt#sha.txt"
