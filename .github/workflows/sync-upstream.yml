@@ -51,10 +51,8 @@ jobs:
 
       - name: Push rebased main
         id: push
-        env:
-          GH_TOKEN: ${{ secrets.SYNC_PAT }}
         run: |
-          git push --force-with-lease "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:main
+          git push --force-with-lease origin HEAD:main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   # marvin is rebased onto upstream/main, never reset from scratch, so a PR
@@ -88,15 +86,13 @@ jobs:
 
       - name: Rebase marvin onto upstream/main
         id: rebase
-        env:
-          GH_TOKEN: ${{ secrets.SYNC_PAT }}
         run: |
           set -euo pipefail
           if ! git rebase upstream/main; then
             git rebase --abort
             echo "WARN: rebase onto upstream/main conflicted; leaving marvin as-is" >&2
           fi
-          git push --force-with-lease "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:marvin
+          git push --force-with-lease origin HEAD:marvin
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build-marvin-app:
