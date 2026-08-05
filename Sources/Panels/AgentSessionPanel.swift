@@ -59,6 +59,11 @@ final class AgentSessionPanel: Panel {
         rendererSession.unfocus()
     }
 
+    /// The hosted NSView for embedding in SwiftUI
+    var hostedView: NSView? {
+        rendererSession.hostedView
+    }
+
     func close() {
         rendererSession.close()
     }

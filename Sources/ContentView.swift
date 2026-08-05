@@ -1007,6 +1007,8 @@ struct ContentView: View {
             targetView = terminal.hostedView
         case let browser as BrowserPanel:
             targetView = browser.webView
+        case let agent as AgentSessionPanel:
+            targetView = agent.hostedView
         default:
             targetView = nil
         }

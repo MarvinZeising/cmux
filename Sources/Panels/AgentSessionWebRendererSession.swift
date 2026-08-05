@@ -1,8 +1,14 @@
+import AppKit
 import Foundation
 
 @MainActor
 final class AgentSessionWebRendererSession {
     private let ownedCoordinator = AgentSessionWebRendererCoordinator()
+
+    /// The hosted NSView for embedding in SwiftUI, once the renderer has bound a web view.
+    var hostedView: NSView? {
+        ownedCoordinator.webView
+    }
     var onHasActiveProviderChanged: ((Bool) -> Void)? {
         didSet {
             ownedCoordinator.onHasActiveProviderChanged = onHasActiveProviderChanged
