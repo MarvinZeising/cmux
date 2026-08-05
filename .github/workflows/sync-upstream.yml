@@ -25,7 +25,11 @@ jobs:
           ref: main
           fetch-depth: 0
           submodules: false
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # GITHUB_TOKEN can't push changes to files under .github/workflows/
+          # (GitHub blocks that regardless of target branch), and this repo's
+          # workflow file lives on main itself. SYNC_PAT is a PAT with the
+          # `workflow` scope, used here and in the push step below instead.
+          token: ${{ secrets.SYNC_PAT }}
 
       - name: Configure git identity
         run: |
@@ -47,8 +51,10 @@ jobs:
 
       - name: Push rebased main
         id: push
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
         run: |
-          git push --force-with-lease origin HEAD:main
+          git push --force-with-lease "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   # marvin is rebased onto upstream/main, never reset from scratch, so a PR
@@ -66,7 +72,9 @@ jobs:
           ref: marvin
           fetch-depth: 0
           submodules: false
-          token: ${{ secrets.GITHUB_TOKEN }}
+          # marvin is rebased straight onto upstream/main too, which can
+          # carry the same workflow-file changes -- same SYNC_PAT need.
+          token: ${{ secrets.SYNC_PAT }}
 
       - name: Configure git identity
         run: |
@@ -80,13 +88,15 @@ jobs:
 
       - name: Rebase marvin onto upstream/main
         id: rebase
+        env:
+          GH_TOKEN: ${{ secrets.SYNC_PAT }}
         run: |
           set -euo pipefail
           if ! git rebase upstream/main; then
             git rebase --abort
             echo "WARN: rebase onto upstream/main conflicted; leaving marvin as-is" >&2
           fi
-          git push --force-with-lease origin HEAD:marvin
+          git push --force-with-lease "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" HEAD:marvin
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build-marvin-app:
