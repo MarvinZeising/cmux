@@ -143,6 +143,14 @@ final class WindowTmuxWorkspacePaneOverlayController: NSObject {
         Task { @MainActor [weak self] in
             guard let self else { return }
             pendingGeometryRefresh = false
+            // didChangeGeometry (and this Task's own resumption) can both fire
+            // before AppKit has actually laid out the new/resized pane's view,
+            // so the "exact" rect stateProvider() reads is still the stale,
+            // pre-relayout frame. Force the pass to finish first -- same
+            // layoutSubtreeIfNeeded() idiom Workspace.flushWorkspaceWindowLayouts()
+            // uses for this class of race -- so the state we render reflects
+            // real geometry instead of falling back to the chrome-trimmed estimate.
+            window?.contentView?.layoutSubtreeIfNeeded()
             update(state: stateProvider())
         }
     }
