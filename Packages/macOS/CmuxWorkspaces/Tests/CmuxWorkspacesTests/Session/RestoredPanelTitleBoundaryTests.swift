@@ -11,10 +11,13 @@ import Testing
             shellState: .promptIdle
         )
 
-        #expect(!boundary.shouldApply(rawTitle: seededTitle))
+        let seededTitleAppliesFirst = boundary.shouldApply(rawTitle: seededTitle)
+        #expect(!seededTitleAppliesFirst)
         #expect(boundary.observe(shellState: .commandRunning) == nil)
-        #expect(!boundary.shouldApply(rawTitle: seededTitle))
-        #expect(boundary.shouldApply(rawTitle: "Resumed Codex session"))
+        let seededTitleAppliesAfterRunning = boundary.shouldApply(rawTitle: seededTitle)
+        #expect(!seededTitleAppliesAfterRunning)
+        let resumedTitleApplies = boundary.shouldApply(rawTitle: "Resumed Codex session")
+        #expect(resumedTitleApplies)
         #expect(!boundary.isReleased)
     }
 
@@ -24,10 +27,12 @@ import Testing
             shellState: .promptIdle
         )
 
-        #expect(!boundary.shouldApply(rawTitle: "cd /tmp/cmux"))
+        let preexecTitleApplies = boundary.shouldApply(rawTitle: "cd /tmp/cmux")
+        #expect(!preexecTitleApplies)
         #expect(boundary.observe(shellState: .commandRunning) == "cd /tmp/cmux")
         #expect(boundary.isReleased)
-        #expect(boundary.shouldApply(rawTitle: "/tmp/cmux"))
+        let releasedTitleApplies = boundary.shouldApply(rawTitle: "/tmp/cmux")
+        #expect(releasedTitleApplies)
     }
 
     @Test func alreadyRunningUnseededShellStartsReleased() {
@@ -37,6 +42,7 @@ import Testing
         )
 
         #expect(boundary.isReleased)
-        #expect(boundary.shouldApply(rawTitle: "Genuine running command"))
+        let genuineTitleApplies = boundary.shouldApply(rawTitle: "Genuine running command")
+        #expect(genuineTitleApplies)
     }
 }
